@@ -1,5 +1,3 @@
-
-
 // Removed GoogleGenAI import as it's now handled by the backend.
 import { Document, Packer, Paragraph, TextRun, AlignmentType, ImageRun } from "docx";
 import * as pdfjsLib from 'pdfjs-dist';
@@ -27,20 +25,34 @@ let originalFileName = '';
 
 pdfUpload.addEventListener('change', async (event) => {
     const file = (event.target as HTMLInputElement).files?.[0];
-    if (!file) {
-        fileNameDisplay.textContent = 'Nenhum arquivo selecionado';
-        selectedFileBase64 = null;
-        selectedFileObject = null;
-        originalFileName = '';
-        return;
-    }
-    if (file.type !== 'application/pdf') {
-        alert('Por favor, selecione um arquivo PDF.');
+    
+    const resetFileState = () => {
         pdfUpload.value = ''; // Reset input
         fileNameDisplay.textContent = 'Nenhum arquivo selecionado';
         selectedFileBase64 = null;
         selectedFileObject = null;
         originalFileName = '';
+    };
+
+    if (!file) {
+        resetFileState();
+        return;
+    }
+
+    if (file.type !== 'application/pdf') {
+        alert('Por favor, selecione um arquivo PDF.');
+        resetFileState();
+        return;
+    }
+
+    // Vercel Hobby plan has a ~4.5MB request body limit.
+    // Base64 encoding adds ~33% overhead. 3MB is a safe limit for the original file.
+    const MAX_FILE_SIZE_MB = 3;
+    const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+        alert(`O arquivo é muito grande (${(file.size / 1024 / 1024).toFixed(2)} MB). Por favor, selecione um arquivo com menos de ${MAX_FILE_SIZE_MB} MB.`);
+        resetFileState();
         return;
     }
 
@@ -91,8 +103,27 @@ async function handleAdaptation() {
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            const errorStatus = response.status;
+            let errorMessage = `HTTP error! status: ${errorStatus}`;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorData.details || errorMessage;
+            } catch (e) {
+                // Could not parse JSON body, use status code for message
+            }
+
+            let userFriendlyMessage = `Ocorreu um erro no servidor (Código: ${errorStatus}).`;
+            if (errorStatus === 504) {
+                 userFriendlyMessage = 'A adaptação demorou muito e o servidor expirou. Isso pode acontecer com arquivos muito grandes ou complexos. Por favor, tente novamente com um arquivo menor.';
+            } else if (errorStatus === 413) {
+                 userFriendlyMessage = 'O arquivo enviado é muito grande e foi rejeitado pelo servidor. Por favor, tente com um arquivo menor.';
+            } else if (errorStatus >= 500) {
+                 userFriendlyMessage = 'Ocorreu um erro interno no servidor. A equipe de desenvolvimento foi notificada. Por favor, tente novamente mais tarde.';
+            } else if (errorStatus >= 400) {
+                 userFriendlyMessage = `O pedido foi inválido (Código: ${errorStatus}). Verifique se o arquivo é um PDF válido.`;
+            }
+            
+            throw new Error(userFriendlyMessage);
         }
 
         const data = await response.json();
@@ -109,7 +140,7 @@ async function handleAdaptation() {
     } catch (error) {
         console.error("Erro durante a adaptação:", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        alert(`Ocorreu um erro ao adaptar o documento: ${errorMessage}`);
+        alert(errorMessage);
         // Display error in the UI for better feedback
         luziaOutput.textContent = `Erro: ${errorMessage}`;
         brendaOutput.textContent = `Erro: ${errorMessage}`;

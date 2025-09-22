@@ -1,0 +1,13 @@
+{
+  "name": "adaptador-backend",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@google/genai": "^1.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@vercel/node": "^3.0.22",
+    "typescript": "^5.3.3"
+  }
+}
